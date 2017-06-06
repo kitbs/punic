@@ -816,10 +816,12 @@ class Calendar
             return self::$timezoneCache[$cacheKey];
         }
 
+        $possibleMetazones = [];
+
         $result = '';
         if (!empty($value)) {
             $receivedPhpName = '';
-            $date = '';
+            $date = date('Y-m-d H:i');
             if (is_string($value)) {
                 $receivedPhpName = $value;
             } elseif (is_a($value, '\\DateTime')) {
@@ -836,10 +838,10 @@ class Calendar
                 $receivedPhpName = static::getTimezoneNameFromTimezone($value);
             }
             if (isset($receivedPhpName[0])) {
-                $metazoneCode = '';
+
                 $data = Data::getGeneric('metaZones');
                 $phpNames = static::getTimezonesAliases($receivedPhpName);
-                if (!isset($metazoneCode[0])) {
+
                     foreach ($phpNames as $phpName) {
                         $path = array_merge(array('metazoneInfo'), explode('/', $phpName));
                         $tzInfo = $data;
@@ -862,58 +864,82 @@ class Calendar
                                             continue;
                                         }
                                     }
-                                    $metazoneCode = $tz['mzone'];
-                                    break;
+                                    $possibleMetazones[] = $tz['mzone'];
                                 }
                             }
                         }
-                        if (isset($metazoneCode[0])) {
-                            break;
-                        }
                     }
-                }
-                if (!isset($metazoneCode[0])) {
+
                     foreach ($phpNames as $phpName) {
                         foreach ($data['metazones'] as $metazone) {
                             if (strcasecmp($phpName, $metazone['type']) === 0) {
-                                $metazoneCode = $metazone['other'];
+                                $possibleMetazones[] = $metazone['other'];
                                 break;
                             }
                         }
-                        if (isset($metazoneCode[0])) {
-                            break;
-                        }
                     }
-                }
-                if (!isset($metazoneCode[0])) {
-                    $metazoneCode = $receivedPhpName;
-                }
-                if (isset($metazoneCode[0])) {
-                    $data = Data::get('timeZoneNames', $locale);
-                    if (isset($data['metazone'])) {
-                        $data = $data['metazone'];
-                        if (isset($data[$metazoneCode])) {
-                            $data = $data[$metazoneCode];
-                            if (isset($data[$width])) {
-                                $data = $data[$width];
-                                $lookFor = array();
-                                if (!empty($kind)) {
-                                    $lookFor[] = $kind;
-                                }
-                                $lookFor[] = 'generic';
-                                $lookFor[] = 'standard';
-                                $lookFor[] = 'daylight';
-                                foreach ($lookFor as $lf) {
-                                    if (isset($data[$lf])) {
-                                        $result = $data[$lf];
-                                        break;
-                                    }
+
+                $possibleMetazones = array_unique($possibleMetazones);
+
+                $possibleNames = [];
+
+                $nameData = Data::get('timeZoneNames', $locale);
+
+                if (!empty($possibleMetazones)) {
+                    if (isset($nameData['metazone'])) {
+                        $data = $nameData['metazone'];
+                        foreach ($possibleMetazones as $metazoneCode) {
+                            if (isset($data[$metazoneCode])) {
+                                $data = $data[$metazoneCode];
+                                if (isset($data[$width])) {
+                                    $data = $data[$width];
+                                    $possibleNames = array_merge($possibleNames, $data);
                                 }
                             }
                         }
                     }
                 }
+
+                foreach ($phpNames as $phpName) {
+                    if ($phpName == 'UTC') {
+                        $phpName = 'Etc/'.$phpName;
+                    }
+                    $path = explode('/', $phpName);
+                    $data = $nameData['zone'];
+                    foreach ($path as $chunk) {
+                        if (isset($data[$chunk])) {
+                            $data = $data[$chunk];
+                        } else {
+                            $data = null;
+                            break;
+                        }
+                    }
+                    if (isset($data[$width])) {
+                        $data = $data[$width];
+                        $possibleNames = array_merge($possibleNames, $data);
+                    }
+                }
             }
+        }
+
+        $data = $possibleNames;
+
+        $lookFor = array();
+        if (!empty($kind)) {
+            $lookFor[] = $kind;
+        }
+        $lookFor[] = 'generic';
+        $lookFor[] = 'standard';
+        $lookFor[] = 'daylight';
+        foreach ($lookFor as $lf) {
+            if (isset($data[$lf])) {
+                $result = $data[$lf];
+                break;
+            }
+        }
+
+        if (empty($result)) {
+            $result = $receivedPhpName;
         }
 
         self::$timezoneCache[$cacheKey] = $result;
@@ -2363,6 +2389,23 @@ class Calendar
 
     protected static function getTimezonesAliases($phpTimezoneName)
     {
+        /*
+        Still no names returned for:
+            America/Punta_Arenas
+            Antarctica/Palmer
+            Asia/Barnaul
+            Asia/Famagusta => Europe/Istanbul?
+            Asia/Istanbul => Europe/Istanbul?
+            Asia/Srednekolymsk
+            Asia/Tomsk
+            Asia/Urumqi
+            Europe/Astrakhan
+            Europe/Kirov
+            Europe/Saratov
+            Europe/Ulyanovsk
+            Pacific/Bougainville
+         */
+
         $result = array($phpTimezoneName);
         switch ($phpTimezoneName) {
             case 'Africa/Asmara':
@@ -2379,6 +2422,12 @@ class Calendar
                 break;
             case 'Asia/Kolkata':
                 $result[] = 'Asia/Calcutta';
+                break;
+            case 'Asia/Yangon':
+                $result[] = 'Asia/Rangoon';
+                break;
+            case 'Asia/Rangoon':
+                $result[] = 'Asia/Yangon';
                 break;
             case 'Atlantic/Faroe':
                 $result[] = 'Atlantic/Faeroe';
